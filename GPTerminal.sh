@@ -4,6 +4,12 @@
 # figure out a better way to do this latter
 OPENAI_API_KEY="PLACEHOLDER_API_KEY"
 
+if [[ -z "$OPENAI_API_KEY" ]]; then
+        echo "Please set your OpenAI API key as the environment variable OPENAI_API_KEY"
+        echo "You can create an API key at https://beta.openai.com/account/api-keys"
+        exit 1
+fi
+
 # Parse command line arguments (check right args given)
 if [ $# -eq 0 ]
 	echo "Enter your question as an argument"
