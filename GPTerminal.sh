@@ -1,15 +1,13 @@
 #!/bin/bash
 
-# Set up OpenAI API Secret Key
-# figure out a better way to do this latter
-# OPENAI_API_KEY="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"
-
+# check if OpenAI API key is set as environment variable
 if [[ -z "$OPENAI_API_KEY" ]]; then
-        echo "Please set your OpenAI API key as the environment variable OPENAI_API_KEY"
+        echo "Please set your OpenAI API key as the environment variable OPENAI_API_KEY by running: export OPENAI_API_KEY=..."
         echo "You can create an API key at https://beta.openai.com/account/api-keys"
         exit 1
 fi
 
+echo $OPENAI_API_KEY
 # Parse command line arguments (check right args given)
 if [ $# -eq 0 ]; then
 	echo "Please enter a question"
@@ -31,6 +29,7 @@ function ask_question {
                 "temperature": 0.7
                 }')
         echo $response
+        echo $response | python -c "import sys, json; print(json.load(sys.stdin))"
 }
 
 # answer=$(ask_question)
