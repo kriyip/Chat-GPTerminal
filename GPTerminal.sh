@@ -2,7 +2,7 @@
 
 # Set up OpenAI API Secret Key
 # figure out a better way to do this latter
-OPENAI_API_KEY="PLACEHOLDER_API_KEY"
+OPENAI_API_KEY="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"
 
 if [[ -z "$OPENAI_API_KEY" ]]; then
         echo "Please set your OpenAI API key as the environment variable OPENAI_API_KEY"
@@ -12,7 +12,7 @@ fi
 
 # Parse command line arguments (check right args given)
 if [ $# -eq 0 ]
-	echo "Enter your question as an argument"
+	echo "Please enter a question"
 	exit 1
 fi
 
@@ -30,3 +30,6 @@ function ask_question {
    	 }")
 	echo $response
 }
+
+answer=$(ask_question "Q: $1\n A:")
+echo $answer
