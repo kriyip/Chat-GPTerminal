@@ -16,13 +16,34 @@ MAX_TOKENS=1024
 MAX_CONTEXT_TOKENS=$(($MAX_TOKENS - 100))
 
 # set default model parameters
-DEFAULT_INIT_PROMPT="You are a continuing a conversation where you answer questions from a user. Answer future questions as concisely as possible. A list of the $CURRENT_QUESTION_INDEX previous questions and answers are provided in the form of 'Q:...\nA:...'. Answer the last question."
+SYSTEM_INIT_PROMPT="You are a continuing a conversation where you answer questions from a user. Answer future questions as concisely as possible. A list of the $CURRENT_QUESTION_INDEX previous questions and answers are provided in the form of 'Q:...\nA:...'. Do NOT add 'Q:' or 'A:' in your answer. Answer the next question."
+DEFAULT_INIT_PROMPT=""
 WRITE_CODE_INIT_PROMPT="You are translating written prompts into code. Answer as concisely as possible."
 EXPLAIN_CODE_INIT_PROMPT="You are summarizing a code snippet in natural language."
 
-# set default init prompt
-USER_INIT_PROMPT=$DEFAULT_INIT_PROMPT
+# set default init prompt"
+USER_INIT_PROMPT="$DEFAULT_INIT_PROMPT"
 
+### CONTEXT FUNCTIONS ###
+
+# get approximate token count of current context
+function get_token_count {
+        char_count=$(echo "$context" | wc -c)
+        approx_token_count=$(echo "scale=0; $char_count * 0.75" | bc)
+        echo "approx token count: $approx_token_count"
+}
+
+# get the number of questions in the context file
+function get_questions_count {
+        CURRENT_QUESTION_INDEX=$(sed -nE 's/^-------------------QUESTION ([0-9]+)---------------------$/\1/p' $CONTEXT_FILE_PATH | tail -n 1)
+        return $CURRENT_QUESTION_INDEX
+}
+
+
+# preprocesses the input $1 to escape quotation marks and replace newlines with spaces
+function preprocess {
+        preprocessed_text=$(echo "$1" | sed -e 's/"/\\"/g' | sed -e 's/\n/ /g')
+}
 
 function init_context_file {
         # check if context file exists
@@ -41,83 +62,94 @@ function init_context_file {
         chmod 700 "$CONTEXT_FILE_PATH"
 }
 
-# DELETE THIS FUNCTION
-# called before each ask_question request
-function get_context_basic {
-        # get context from context file
-        context=$(cat "$CONTEXT_FILE_PATH")
-        # may need to grep based on certain keywords? or is there some way I could summarize a text file?
-        # first, will just make it work with basic context file and then try to make longer conversations last.
-        # will drop the previous context files
-        # echo "get context: $context"
-}
-
-function get_context_summarize {
-        echo "in summarize"
-}
-
+# need to check that this function works correctly
+# TODO: streamline the format of the context file (in both init_chat_context and write_to_context_file) - done
 function init_chat_context {
-        if [ -z "$context" ]; then
+        # check if context file is empty
+        if [ -s "$CONTEXT_FILE_PATH" ]; then
                 echo "Context is empty"
-                echo -e "----INITIALIZATION PROMPT----\n" >> "$CONTEXT_FILE_PATH"
-                ask_question "$USER_INIT_PROMPT"
-                echo -e "----END INITIALIZATION PROMPT----\n" >> "$CONTEXT_FILE_PATH"
+                # ask_question "$USER_INIT_PROMPT"
+                echo -e "Initialization Prompt: $USER_INIT_PROMPT" >> "$CONTEXT_FILE_PATH"
                 context="$USER_INIT_PROMPT"
+        else 
+                # we are continuing from a previous context
+                # first get the initialization prompt and preprocess it
+                USER_INIT_PROMPT=$(cat "$CONTEXT_FILE_PATH" | head -n 1 | sed 's/Initialization Prompt: (.*)/\1/')
+                preprocess "$USER_INIT_PROMPT"
+                preprocessed_USER_INIT_PROMPT="$preprocessed_text"
+
+                # starting from last question, add to context until we exceed MAX_CONTEXT_TOKENS
+                context="$preprocessed_USER_INIT_PROMPT\n$context"
+                init_prompt_token_count=$(get_token_count)
+                
+                # total num questions in CURRENT_QUESTION_INDEX
+                curr_question=$(get_questions_count)
+                context=""
+
+                while [ $(echo "$approx_token_count < $MAX_CONTENT_TOKENS - $init_prompt_token_count)" | bc) -eq 1 ] && [ $curr_question -gt 0]; do
+                        echo "---loop---"
+
+                        # get the curr_question-th question and answer
+                        curr_text=$(sed -n "/-------------------QUESTION $curr_question---------------------/,/-------------------END OF QUESTION $((curr_question+1))---------------------/p" $CONTEXT_FILE_PATH | tail -n +2 | head -n -1)
+                        context="$curr_text\n$context"
+
+                        echo "$context"
+                        get_token_count
+                done
+
+                # add back the initialization prompt
+                context="$preprocessed_USER_INIT_PROMPT\n$context"
+                
+        done
+                
         fi
         # get context from context file, and replace newlines with \n
-        context=$(cat "$CONTEXT_FILE_PATH")
+        context=$(cat "$CONTEXT_FILE_PATH" | tail -n +5)
         context=$(echo "$context" | sed -e 's/"/\\"/g')
 }
-
-# build_chat_context() {
-#         chat_context="$1"
-# 	escaped_prompt="$2"
-# 	if [ -z "$chat_context" ]; then
-# 		chat_context="$CHAT_INIT_PROMPT\nQ: $escaped_prompt"
-# 	else
-# 		chat_context="$chat_context\nQ: $escaped_prompt"
-# 	fi
-# 	request_prompt="${chat_context//$'\n'/\\n}"
-# }
 
 # chat history filenames are be of the form .GPTerminal/History/<timestamp> or <user-defined>
 # stores Q: <user prompt> and A: <chat response> in the chat history file
 # $1 is the user prompt/question, $2 is the chat response, $3 current question number
-function write_to_chat_context {
+function write_to_context_file {
         echo -e "-------------------QUESTION $3---------------------" >> "$CONTEXT_FILE_PATH"
         echo "context file path: $CONTEXT_FILE_PATH"
-        echo -e "\nUser: $1\n" >> "$CONTEXT_FILE_PATH"
-        echo -e "Response: $2\n" >> "$CONTEXT_FILE_PATH"
+        echo -e "\Q: $1" >> "$CONTEXT_FILE_PATH"
+        echo -e "A: $2" >> "$CONTEXT_FILE_PATH"
+        echo -e "-------------------END OF QUESTION $3---------------------" >> "$CONTEXT_FILE_PATH"
 }
 
-function get_token_count {
-        char_count=$(echo "$context" | wc -c)
-        approx_token_count=$(echo "scale=0; $char_count * 0.75" | bc)
-        echo "approx token count: $approx_token_count"
-}
-
+# adds a new question and response to the chat context
 # keeps the size of the context to a maximum of MAX_TOKENS-100 tokens (100 left over for current prompt)
-# $1 is chat context, $2 is processed question, $3 is processed response
+# $1 is processed question, $2 is processed response
 function update_chat_context {
-        context="$1\nQ: $2\nA: $3"
+        # add check for 0 questions (new chat)
+
+
+        # add new QnA to context
+        context="$context\nQ: $1\nA: $2"
+        echo "$context"
+
         # check context length 
         # approximately 1 token = 4 characters or ~.75 words (100 tokens = 75 words)
-        echo "Q: $2"
-        echo "A: $3"
-        echo "new context: $context"
         get_token_count
 
-        while [ $(echo "$approx_token_count > 184" | bc) -eq 1 ]; do
+        while [ $(echo "$approx_token_count > $MAX_CONTENT_TOKENS)" | bc) -eq 1 ]; do
                 echo "loop"
                 # remove first/oldest QnA from prompt
-                echo "$context" | sed -n '1,/A:/!p'
-                context=$(echo "$context" | sed -n '1,/A:/d')
+                cc=$(echo "$chat" | sed -n '/Q:/,$p' | tail -n +2)
+                echo "$cc"
+                context=$(echo "$context" | sed '1,/\\nA: /d')
                 # add back initialization prompt
                 context="$USER_INIT_PROMPT\n$context"
                 echo "$context"
                 get_token_count
         done
 }
+
+# context="$USER_INIT_PROMPT\nQ: Give me a name\nA: Bob"
+# update_chat_context "What is your name?" "My name is GPTerminal"
+# exit 1
 
 # context="$USER_INIT_PROMPT\nQ: Give me a name\nA: Bob"
 # update_chat_context "$context" "What is your name?" "My name is GPTerminal"
@@ -130,17 +162,39 @@ function ask_question {
         response=$(curl https://api.openai.com/v1/chat/completions \
                 -H 'Content-Type: application/json' \
                 -H "Authorization: Bearer $OPENAI_API_KEY" \
+                -s -S \
                 -d '{
                 "model": "'"$MODEL"'",
-                "messages": [{"role": "user", "content": "'"$1"'"}],
-                "temperature": '"$TEMPERATURE"'
+                "messages": [{"role": "system", "content": "'"$SYSTEM_INIT_PROMPT"'"}, '"$message_json"'],
+                "temperature": '"$TEMPERATURE"',
+                "max_tokens": '"$MAX_TOKENS"'
                 }')
 
-        processed_response=$(echo "$response" | jq -r '.choices[0].message.content | @text')
-        # processed_response=$(echo "$response" | python -c "import sys, json; print(json.load(sys.stdin)['choices'][0]['message']['content'])")
-        echo "response: $processed_response"
-        write_to_chat_context "$1" "$processed_response" "$CURRENT_QUESTION_INDEX"
+        extracted_response=$(echo "$response" | jq -r '.choices[0].message.content | @text')
+        # extracted_response=$(echo "$response" | python -c "import sys, json; print(json.load(sys.stdin)['choices'][0]['message']['content'])")
+        echo "response: $extracted_response"
 }
+
+# function ask_question {
+#         echo "PROMPT PARAMETER: $1"
+        
+#         response=$(curl https://api.openai.com/v1/chat/completions \
+#                 -H 'Content-Type: application/json' \
+#                 -H "Authorization: Bearer $OPENAI_API_KEY" \
+#                 -s -S \
+#                 -d '{
+#                 "model": "'"$MODEL"'",
+#                 "messages": [{"role": "user", "content": "'"$1"'"}],
+#                 "temperature": '"$TEMPERATURE"'
+#                 }')
+
+#         extracted_response=$(echo "$response" | jq -r '.choices[0].message.content | @text')
+#         # extracted_response=$(echo "$response" | python -c "import sys, json; print(json.load(sys.stdin)['choices'][0]['message']['content'])")
+#         # echo "response: $extracted_response"
+#         write_to_context_file "$1" "$extracted_response" "$CURRENT_QUESTION_INDEX"
+# }
+
+
 
 
 # check if OpenAI API key is set as environment variable
@@ -150,6 +204,7 @@ if [[ -z "$OPENAI_API_KEY" ]]; then
         echo "You can create an API key at https://beta.openai.com/account/api-keys"
         exit 1
 fi
+
 
 # parse flags/cli
 while [[ $# -gt 0 ]]; do
@@ -191,20 +246,20 @@ while [[ $# -gt 0 ]]; do
                         shift
                         shift
                         ;;
-                --context )
-                        if [ "$2" = "drop" ]; then
-                                HAS_CONTEXT=1
-                        elif [ "$2" = "summarize"]; then
-                                HAS_CONTEXT=2
-                        elif [ "$2" = "off" ]; then
-                                HAS_CONTEXT=0
-                        else
-                                echo "Invalid context: $2"
-                                exit 1
-                        fi
-                        shift
-                        shift
-                        ;;
+                # --context )
+                #         if [ "$2" = "drop" ]; then
+                #                 HAS_CONTEXT=1
+                #         elif [ "$2" = "summarize"]; then
+                #                 HAS_CONTEXT=2
+                #         elif [ "$2" = "off" ]; then
+                #                 HAS_CONTEXT=0
+                #         else
+                #                 echo "Invalid context: $2"
+                #                 exit 1
+                #         fi
+                #         shift
+                #         shift
+                #         ;;
                 -v | --verbose )
                         if [ "$2" = "on" ]; then
                                 VERBOSE=1
@@ -263,19 +318,17 @@ while [[ $# -gt 0 ]]; do
         esac
 done
 
+echo "---------------INIT PARAMS---------------------"
 echo "User init prompt: $USER_INIT_PROMPT"
 echo "Model: $MODEL"
 echo "Temperature: $TEMPERATURE"
+echo "-----------------------------------------------"
 
+# make context file if it does not exist
 init_context_file
 context=$(cat "$CONTEXT_FILE_PATH")
 
-# context=""
-# if [ $HAS_CONTEXT -eq 1 ]; then
-#         context=$(get_context_basic)
-# elif [ $HAS_CONTEXT -eq 2 ]; then
-#         context=$(get_context_summarize)
-# fi
+# if no context, then just loop and prompt for questions
 
 # check if chat context is empty (i.e. it does not contain an init prompt)
 # if yes, then add the init prompt to the context as question 0
@@ -291,10 +344,11 @@ fi
 # get the last question number in the file
 echo $CURRENT_QUESTION_INDEX
 CURRENT_QUESTION_INDEX=$(sed -nE 's/^-------------------QUESTION ([0-9]+)---------------------$/\1/p' $CONTEXT_FILE_PATH | tail -n 1)
+CURRENT_QUESTION_INDEX=$((CURRENT_QUESTION_INDEX + 1))
 
 echo "$CONTEXT_FILE_PATH"
 cat "$CONTEXT_FILE_PATH"
-echo "last question: $CURRENT_QUESTION_INDEX"
+echo "curr question: $CURRENT_QUESTION_INDEX"
 
 # type exit to exit
 while true; do
@@ -302,6 +356,23 @@ while true; do
         if [ "$input" == "exit" ] || [ "$input" == "q" ]; then
                 echo "Shutting down..."
                 exit 0
+        else
+                # preprocess the user's question
+                preprocess "$input"
+                preprocessed_question="$preprocessed_text"
+                
+                # ask the question, raw json is stored in $response, processed in $extracted_response
+                ask_question "$question"
+                # print the response and write it to the history file
+                echo "response: $extracted_response"
+                write_to_context_file "$question" "$extracted_response" "$CURRENT_QUESTION_INDEX"
+
+                # preprocess the response
+                preprocess "$extracted_response"
+                preprocessed_response="$preprocessed_text"
+
+                # update the current context
+                update_chat_context "$preprocessed_question" "$preprocessed_response"
+                CURRENT_QUESTION_INDEX=$((CURRENT_QUESTION_INDEX + 1))
         fi
-        ask_question "$question"
 done
