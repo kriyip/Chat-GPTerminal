@@ -13,19 +13,14 @@ TEMPERATURE="0.7"
 CURRENT_QUESTION_INDEX=0
 
 MAX_TOKENS=1024
-MAX_CONTEXT_TOKENS=$((MAX_TOKENS - 244)) # leave 244 tokens for prompt (780 for context). let this be user adjustable. note that higher token allowances for the current question will decrease the capacity of the context.
+MAX_CONTEXT_TOKENS=$((MAX_TOKENS - 244)) # leave 244 tokens for prompt (780 for context). will change this to be user adjustable. note that higher token allowances for the current question will decrease the capacity of the context.
 
 # set default model parameters
-SYSTEM_INIT_PROMPT="You are ChatGPT, a large language model trained by OpenAI. Answer as concisely as possible. Current date: $(date +%d/%m/%Y). Knowledge cutoff: 9/1/2021."
-SYSTEM_INIT_PROMPT="You are ChatGPT, a large language model trained by OpenAI. You will be answering questions from users.  You answer as concisely as possible for each response (don’t be verbose). If you are generating a list, keep the number of items short. Before each user prompt you will be given the chat history in Q&A form. Output your answer directly, with no labels in front. Do not start your answers with A or Answer. Knowledge cutoff: 9/1/2021."
+SYSTEM_PROMPT_MODE="default (general purpose)"
+SYSTEM_INIT_PROMPT="You are ChatGPT, a large language model by OpenAI. Be as concise as possible. The shorter the better. If you are generating a list, keep the number of items small. Output your answer directly, with no labels in front. Do not start your answers with A or Answer."
 
-DEFAULT_INIT_PROMPT="You are ChatGPT, a Large Language Model trained by OpenAI. You will be answering questions from users. You answer as concisely as possible for each response (e.g. don’t be verbose). If you are generating a list, do not have too many items. Keep the number of items short. Before each user prompt you will be given the chat history in Q&A form. Output your answer directly, with no labels in front. Do not start your answers with A or Answer. You were trained on data up until 2021. Today's date is $(date +%d/%m/%Y)"
-DEFAULT_INIT_PROMPT="hello how are you"
-WRITE_CODE_INIT_PROMPT="You are translating written prompts into code. Answer as concisely as possible."
-EXPLAIN_CODE_INIT_PROMPT="You are summarizing a code snippet in natural language."
-
-# set default init prompt"
-USER_INIT_PROMPT="$DEFAULT_INIT_PROMPT"
+WRITE_CODE_INIT_PROMPT="You are a helpful Linux terminal expert. You are given command descriptions and returning functioning shell commands. Return the output of the command directly, with no other content. Do not return the command in a code block."
+EXPLAIN_CODE_INIT_PROMPT="You are a helpful Linux terminal expert. You are given shell commands and explaining the command. Be as concise as possible. The shorter the better."
 
 
 # color and style codes
@@ -39,9 +34,10 @@ NC=`tput sgr0`
 
 
 # returns the number of questions in the context file. Stores the result in CURRENT_QUESTION_INDEX.
+# Arguments: $1 is the context file path
 function get_questions_count {
-        CURRENT_QUESTION_INDEX=$(sed -nE 's/^-------------------QUESTION ([0-9]+):.*---------------------$/\1/p' $CONTEXT_FILE_PATH | tail -n 1)
-        if [ -z "$CURRENT_QUESTION_INDEX" ]; then
+        CURRENT_QUESTION_INDEX=$(sed -nE 's/^-------------------QUESTION ([0-9]+):.*---------------------$/\1/p' $1 | tail -n 1)
+        if [ -z "$1" ]; then
                 CURRENT_QUESTION_INDEX=0
         fi
 }
@@ -90,11 +86,6 @@ function init_context_file {
         fi
         touch "$CONTEXT_FILE_PATH"
         chmod 700 "$CONTEXT_FILE_PATH"
-
-        echo -e "----INITIALIZATION PROMPT----" >> "$CONTEXT_FILE_PATH"
-        ask_question "$USER_INIT_PROMPT"
-        write_to_context_file "$USER_INIT_PROMPT" "$processed_response" "$CURRENT_QUESTION_INDEX"
-        echo -e "----END INITIALIZATION PROMPT----" >> "$CONTEXT_FILE_PATH"
 
 }
 
@@ -224,7 +215,7 @@ function ask_question {
                         ;;
                         * )
                                 error_reason=$(echo "$response" | jq -r '.error.message')
-                                echo -e "${RED} An unknown error occurred with the OpenAI API: $error_reason${NC}" >&2
+                                echo -e "${RED}$error_reason${NC}" >&2
                         ;;
                 esac
 		exit 2
@@ -262,15 +253,20 @@ fi
 while [[ $# -gt 0 ]]; do
         case $1 in
                 -i | --init-chat-prompt ) # check if i is followed by empty. if yes, then print the pre-defined init prompts and exit
-                        if [ "$2" = "write-code" ]; then
-                                USER_INIT_PROMPT="$WRITE_CODE_INIT_PROMPT"
-                        elif [ "$2" = "explain-code" ]; then
-                                USER_INIT_PROMPT="$EXPLAIN_CODE_INIT_PROMPT"
-                        elif [ "$2" = "command-line-helper" ]; then # also have a way to execute the command
-                                USER_INIT_PROMPT="you are a command line helper"
+                        if [ "$2" = "linux-write" ]; then
+                                SYSTEM_INIT_PROMPT="$WRITE_CODE_INIT_PROMPT"
+                                SYSTEM_PROMPT_MODE="write (create linux terminal commands)"
+                        elif [ "$2" = "linux-explain" ]; then
+                                SYSTEM_INIT_PROMPT="$EXPLAIN_CODE_INIT_PROMPT"
+                                SYSTEM_PROMPT_MODE="explain (explain linux terminal commands)"
+                        # check if $2 is empty
+                        elif [ -z "$2" ]; then
+                                echo -e "${BLUE}Available pre-defined init prompts:\n linux-write\n linux-explain${NC}"
+                                exit 0
                         else
-                                echo "Invalid init prompt: $2"
-                                exit 1
+                                SYSTEM_INIT_PROMPT="$2"
+                                SYSTEM_PROMPT_MODE="custom ($2)"
+                                SYSTEM_INIT_PROMPT="$SYSTEM_INIT_PROMPT Be concise."
                         fi
                         shift
                         shift
@@ -279,8 +275,7 @@ while [[ $# -gt 0 ]]; do
                         if (( $(echo "$2 > 0" | bc -l) )) && (( $(echo "$2 < 1" | bc -l) )); then
                                 TEMPERATURE="$2"
                         else
-                                echo "Invalid temperature: $2"
-                                echo "Temperature must be between 0 and 1"
+                                echo -e "${RED}Invalid temperature: $2\nTemperature must be between 0 and 1${NC}"
                                 exit 1
                         fi
                         shift
@@ -300,13 +295,16 @@ while [[ $# -gt 0 ]]; do
                 #         ;;
                 -n | --name-new-chat )
                         if [ -n "$2" ]; then
-                                if [ -e ".GPTerminal/History/$2" ]; then
-                                        echo "Chat $2 already exists"
+                                if [[ "$2" =~ " " ]]; then
+                                        echo "${RED}Chat names cannot contain spaces.${NC}"
+                                        exit 1
+                                elif [ -e ".GPTerminal/History/$2" ]; then
+                                        echo "${RED}Chat \"$2\" already exists. Please enter another name.${NC}"
                                         exit 1
                                 fi
                                 CONTEXT_FILE_PATH=".GPTerminal/History/$2"
                         else
-                                echo "Chat name cannot be the empty string"
+                                echo "${RED}Chat name cannot be the empty string${NC}"
                                 exit 1
                         fi
                         shift
@@ -315,25 +313,29 @@ while [[ $# -gt 0 ]]; do
                 -h | --history ) # takes in chatname parameter, prints chat history
                         if [ -z "$2" ]; then # check if input is empty
                                 num_chats=$(ls -1 ".GPTerminal/History" | wc -l)
-                                echo "Listing all ${num_chats#"${num_chats%%[![:space:]]*}"} chat(s):"
+                                echo "${BLUE}Listing all ${num_chats#"${num_chats%%[![:space:]]*}"} chat(s):${NC}"
                                 ls ".GPTerminal/History"
                                 exit 1
-                        elif [ -n ".GPTerminal/History/$2" ]; then
+                        elif [ -e ".GPTerminal/History/$2" ]; then
+                                get_questions_count ".GPTerminal/History/$2"
+                                echo "${BLUE}Opening chat \"$2\" containing $CURRENT_QUESTION_INDEX questions...${NC}"
                                 less ".GPTerminal/History/$2"
                                 exit 1
                         else
-                                echo "No such chat $2 exists"
+                                echo "${RED}No such chat \"$2\" exists${NC}"
+                                exit 1
                         fi
                         shift
                         shift
                         ;;
                 -q | --question ) # ask question and exit. context/history will not be saved
+                        echo -e "${GREEN}User:${NC} $2"
                         ask_question "$2"
-                        echo -e "\n${BLUE}response:${NC} $extracted_response\n"
+                        echo -e "${BLUE}Chat:${NC} $extracted_response\n"
                         exit 1
                         ;;
                 * )
-                        echo "Invalid option: $1"
+                        echo "${RED}Invalid option: $1${NC}"
                         exit 1
                         ;;
         esac
@@ -342,11 +344,10 @@ done
 # make context file if it does not exist
 init_context_file
 
-CURRENT_QUESTION_INDEX=$((CURRENT_QUESTION_INDEX+1))
 
 # print initialization params
 echo "---------------INITIALIZATION PARAMS---------------"
-echo "Initialization: $USER_INIT_PROMPT (default: general questions)"
+echo "Initialization: $SYSTEM_PROMPT_MODE"
 echo "Model: $MODEL"
 echo "Temperature: $TEMPERATURE"
 echo "Chat Name: $CONTEXT_FILE_PATH"
