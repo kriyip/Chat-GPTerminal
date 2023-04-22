@@ -502,7 +502,7 @@ while true; do
                 ask_question "$preprocessed_question"
                 # print the response and write it to the history file
                 echo "response: $extracted_response"
-                write_to_context_file "$question" "$extracted_response" "$CURRENT_QUESTION_INDEX"
+                write_to_context_file "$preprocessed_question" "$extracted_response" "$CURRENT_QUESTION_INDEX"
 
                 # update the current context
                 # update_chat_context "$preprocessed_question" "$preprocessed_response"
