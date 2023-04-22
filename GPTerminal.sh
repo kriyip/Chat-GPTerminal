@@ -7,7 +7,7 @@ CONTEXT_FILE_PATH=""
 MODEL="gpt-3.5-turbo"
 
 # 1 for verbose, 0 for not verbose
-VERBOSE=0
+# VERBOSE=0
 TEMPERATURE="0.7"
 
 CURRENT_QUESTION_INDEX=0
@@ -141,6 +141,10 @@ function make_request_json_array {
 #   $1: the processed response string
 # OUTPUTS:
 #   The chat request json in chat_request
+# ERROR CODES:
+#   1: the chat request is not valid json (usually api key is invalid)
+#   2: the chat request is too long
+#   3: the chat request has a parse error (edge cases with escape characters)
 #######################################
 function update_chat_request_with_response {
         
@@ -155,6 +159,14 @@ function update_chat_request_with_response {
         num_tokens=$(echo "$num_tokens * 1.3" | bc)
         exceeds_max=$(echo "$num_tokens > $MAX_CONTEXT_TOKENS" | bc)
 
+        # check for parse error
+        echo "$request_json_array" | jq -c '.[2:]' | jq -s . | jq -c '.[0]' >/dev/null
+        if [ $? -ne 0 ]; then
+                echo "$?"
+                exit 3
+        fi
+
+        # if the number of tokens exceeds the max, remove the first question/answer pair until it doesn't
         while [ $exceeds_max = 1 ]; do
                 # remove the first question/answer pair
                 new_json_array=$(echo "$request_json_array" | jq -c '.[2:]' | jq -s . | jq -c '.[0]')
@@ -194,14 +206,14 @@ function ask_question {
         response=$(curl https://api.openai.com/v1/chat/completions \
                 -s -S \
                 -H 'Content-Type: application/json' \
-                -H "Authorization: Bearer bad_api_key" \
+                -H "Authorization: Bearer $OPENAI_API_KEY" \
                 -d '{
                 "model": "'"$MODEL"'",
                 "messages": [{"role": "system", "content": "'"$SYSTEM_INIT_PROMPT"'"}, '"$chat_request"'],
                 "temperature": '"$TEMPERATURE"',
                 "max_tokens": '"$MAX_TOKENS"'
                 }' 2>&1)
-                
+        
         # check if response is an error. if yes, print to stderr and exit
         if echo "$response" | jq -e '.error?' >/dev/null; then
                 error_type=$(echo "$response" | jq -r '.error.code')
@@ -211,7 +223,8 @@ function ask_question {
                                 echo -e "${RED} Invalid API key. Please check your API key and try again.${NC}" >&2
                         ;;
                         * )
-                                echo -e "${RED} An unknown error occurred with the OpenAI API." >&2
+                                error_reason=$(echo "$response" | jq -r '.error.message')
+                                echo -e "${RED} An unknown error occurred with the OpenAI API: $error_reason${NC}" >&2
                         ;;
                 esac
 		exit 2
@@ -273,18 +286,18 @@ while [[ $# -gt 0 ]]; do
                         shift
                         shift
                         ;;
-                -v | --verbose )
-                        if [ "$2" = "on" ]; then
-                                VERBOSE=1
-                        elif [ "$2" = "off" ]; then
-                                VERBOSE=0
-                        else
-                                echo "Invalid verbose: $2"
-                                exit 1
-                        fi
-                        shift
-                        shift
-                        ;;
+                # -v | --verbose )
+                #         if [ "$2" = "on" ]; then
+                #                 VERBOSE=1
+                #         elif [ "$2" = "off" ]; then
+                #                 VERBOSE=0
+                #         else
+                #                 echo "Invalid verbose: $2"
+                #                 exit 1
+                #         fi
+                #         shift
+                #         shift
+                #         ;;
                 -n | --name-new-chat )
                         if [ -n "$2" ]; then
                                 if [ -e ".GPTerminal/History/$2" ]; then
@@ -357,6 +370,9 @@ while true; do
                 if [ "$err_code" = 1 ]; then
                         echo -e "${RED}Error: Null response from OpenAI API. Please try again. You may want to try using a smaller input. You may also want to try resetting the chat context (by creating a new chat or typing --force-context-reset)${NC}">&2
                 elif [ "$err_code" = 2 ]; then
+                        exit 1
+                elif [ "$err_code" = 3 ]; then
+                        echo -e "${GRAY}Error: A parse error has occurred within the script. Please report this issue. This will hopefully be fixed in the near future.${NC}">&2
                         exit 1
                 else
                         # write response to the history file
