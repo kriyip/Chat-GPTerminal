@@ -1,0 +1,20 @@
+----INITIALIZATION PROMPT----
+-------------------QUESTION 0: 2023-04-22_00:59:49---------------------
+Q: hello how are you
+A: I'm an AI language model, so I don't have feelings like humans do, but I'm functioning properly and ready to assist you! How can I help you today? 
+-------------------END OF QUESTION 0---------------------
+----END INITIALIZATION PROMPT----
+-------------------QUESTION 1: 2023-04-22_01:00:02---------------------
+Q: list a bunch of escape characters 
+A: Sure, here are some common escape characters:
+
+1. 
+ - newline
+2. 	 - tab
+3.  - carriage return
+4. \ - backslash
+5. \' - single quote
+6. \" - double quote
+7.  - backspace
+8.  - form feed
+-------------------END OF QUESTION 1---------------------
