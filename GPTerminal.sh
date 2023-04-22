@@ -194,17 +194,33 @@ function ask_question {
         response=$(curl https://api.openai.com/v1/chat/completions \
                 -s -S \
                 -H 'Content-Type: application/json' \
-                -H "Authorization: Bearer $OPENAI_API_KEY" \
+                -H "Authorization: Bearer bad_api_key" \
                 -d '{
                 "model": "'"$MODEL"'",
                 "messages": [{"role": "system", "content": "'"$SYSTEM_INIT_PROMPT"'"}, '"$chat_request"'],
                 "temperature": '"$TEMPERATURE"',
                 "max_tokens": '"$MAX_TOKENS"'
-                }')
+                }' 2>&1)
+                
+        # check if response is an error. if yes, print to stderr and exit
+        if echo "$response" | jq -e '.error?' >/dev/null; then
+                error_type=$(echo "$response" | jq -r '.error.code')
+                echo -e "${RED}${BOLD}Your request to the OpenAI API failed. Reason: ${NC}" >&2
+                case $error_type in
+                        "invalid_api_key" )
+                                echo -e "${RED} Invalid API key. Please check your API key and try again.${NC}" >&2
+                        ;;
+                        * )
+                                echo -e "${RED} An unknown error occurred with the OpenAI API." >&2
+                        ;;
+                esac
+		exit 2
+	fi
 
+        # extract response text from json
         extracted_response=$(echo "$response" | jq -r '.choices[0].message.content | @text')
 
-        # if response is null, throw error
+        # if response is null, there is likely some sort of token length error
         if [ -z "$extracted_response" ]; then
                 exit 1
         fi
@@ -223,8 +239,8 @@ function ask_question {
 
 # check if OpenAI API key is set as environment variable
 if [[ -z "$OPENAI_API_KEY" ]]; then
-        echo -e "${RED}Error: Please set your OpenAI API key as the environment variable ${BOLD}OPENAI_API_KEY${NC} ${RED}by running:\n ${BOLD}export OPENAI_API_KEY=YOUR_API_KEY${NC}"
-        echo -e "${RED}You can create an API key at https://beta.openai.com/account/api-keys${NC}"
+        echo -e "${RED}Error: Please set your OpenAI API key as the environment variable ${BOLD}OPENAI_API_KEY${NC} ${RED}by running:\n ${BOLD}export OPENAI_API_KEY=YOUR_API_KEY${NC}" >&2
+        echo -e "${RED}You can create an API key at https://beta.openai.com/account/api-keys${NC}" >&2
         exit 1
 fi
 
@@ -339,7 +355,9 @@ while true; do
                 err_code=$?
 
                 if [ "$err_code" = 1 ]; then
-                        echo -e "${RED}Error: No response from OpenAI API. Please try again. You may want to try using a smaller input. You may also want to try resetting the chat context (by creating a new chat or typing --force-context-reset)${NC}"
+                        echo -e "${RED}Error: Null response from OpenAI API. Please try again. You may want to try using a smaller input. You may also want to try resetting the chat context (by creating a new chat or typing --force-context-reset)${NC}">&2
+                elif [ "$err_code" = 2 ]; then
+                        exit 1
                 else
                         # write response to the history file
                         write_to_context_file "$preprocessed_question" "$extracted_response" "$CURRENT_QUESTION_INDEX"
