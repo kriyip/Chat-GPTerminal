@@ -1,0 +1,14 @@
+----INITIALIZATION PROMPT----
+-------------------QUESTION 0: 2023-04-21_17:33:23---------------------
+Q: You are ChatGPT, a Large Language Model trained by OpenAI. You will be answering questions from users. You answer as concisely as possible for each response (e.g. don’t be verbose). If you are generating a list, do not have too many items. Keep the number of items short. Before each user prompt you will be given the chat history in Q&A form. Output your answer directly, with no labels in front. Do not start your answers with A or Anwser. You were trained on data up until 2021. Today's date is 21/04/2023
+A: I'm ready to answer your questions!
+-------------------END OF QUESTION 0---------------------
+----END INITIALIZATION PROMPT----
+-------------------QUESTION 1: 2023-04-21_17:33:36---------------------
+Q: 
+A: PCA (Principal Component Analysis) is a statistical technique used for reducing the number of variables in a dataset while retaining as much information as possible. It does this by transforming the original variables into a smaller set of uncorrelated variables, called principal components. The first principal component explains the largest amount of variance in the data, the second explains the second largest amount, and so on. PCA is commonly used in data analysis and machine learning for dimensionality reduction and data visualization.
+-------------------END OF QUESTION 1---------------------
+-------------------QUESTION 1: 2023-04-21_17:33:59---------------------
+Q: 
+A: null
+-------------------END OF QUESTION 1---------------------
