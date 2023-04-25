@@ -19,7 +19,7 @@ MAX_CONTEXT_TOKENS=$((MAX_TOKENS - 244)) # leave 244 tokens for prompt (780 for 
 SYSTEM_PROMPT_MODE="default (general purpose)"
 SYSTEM_INIT_PROMPT="You are ChatGPT, a large language model by OpenAI. Be as concise as possible. The shorter the better. If you are generating a list, keep the number of items small. Output your answer directly, with no labels in front. Do not start your answers with A or Answer."
 
-WRITE_CODE_INIT_PROMPT="You are a helpful Linux terminal expert. You are given command descriptions and returning functioning shell commands. Return the output of the command directly, with no other content. Do not return the command in a code block."
+WRITE_CODE_INIT_PROMPT="You are a helpful Linux terminal expert. You are given command descriptions and returning functioning shell commands. Return only the output of the command directly, with no other content and not in a code block. Be as concise as possible. The shorter the better."
 EXPLAIN_CODE_INIT_PROMPT="You are a helpful Linux terminal expert. You are given shell commands and explaining the command. Be as concise as possible. The shorter the better."
 
 
@@ -42,6 +42,15 @@ function get_questions_count {
         fi
 }
 
+
+# preprocesses a string by replacing newlines with spaces and escaping double quotes
+# also escapes all control characters from U+0000 through U+001F (unprintable characters)
+# Arguments: $1 is the string to be preprocessed
+function preprocess {
+        preprocessed_text=$(echo "$1" | tr '\n' ' ' | tr -d '\r' | sed -e 's/"/\\"/g')
+}
+
+
 #######################################
 # returns the approximate token count of its input
 # approximately 1 token = 4 characters or ~.75 words (100 tokens = 75 words)
@@ -54,14 +63,6 @@ function get_token_count {
         char_count=$(echo "$1" | wc -c)
         approx_token_count=$(echo "scale=0; $char_count * 0.75" | bc)
         echo "approx token count: $approx_token_count"
-}
-
-
-# preprocesses a string by replacing newlines with spaces and escaping double quotes
-# also escapes all control characters from U+0000 through U+001F (unprintable characters)
-# Arguments: $1 is the string to be preprocessed
-function preprocess {
-        preprocessed_text=$(echo "$1" | tr '\n' ' ' | tr -d '\r' | sed -e 's/"/\\"/g')
 }
 
 
@@ -116,9 +117,9 @@ function write_to_context_file {
 #   The chat request json in chat_request
 #######################################
 function make_request_json_array {
-        if [ -z "$chat_request" ]; then # initialize chat request if it doesn't exist
+        if [ -z "$chat_request" ]; then
                 chat_request="{\"role\": \"user\", \"content\": \"$1\"}"
-        else # append new question to chat message
+        else
                 chat_request="$chat_request, {\"role\": \"user\", \"content\": \"$1\"}"
         fi
 }
@@ -281,18 +282,6 @@ while [[ $# -gt 0 ]]; do
                         shift
                         shift
                         ;;
-                # -v | --verbose )
-                #         if [ "$2" = "on" ]; then
-                #                 VERBOSE=1
-                #         elif [ "$2" = "off" ]; then
-                #                 VERBOSE=0
-                #         else
-                #                 echo "Invalid verbose: $2"
-                #                 exit 1
-                #         fi
-                #         shift
-                #         shift
-                #         ;;
                 -n | --name-new-chat )
                         if [ -n "$2" ]; then
                                 if [[ "$2" =~ " " ]]; then
@@ -341,24 +330,35 @@ while [[ $# -gt 0 ]]; do
         esac
 done
 
-# make context file if it does not exist
+
 init_context_file
 
+
+context_file_name=$(basename "$CONTEXT_FILE_PATH")
 
 # print initialization params
 echo "---------------INITIALIZATION PARAMS---------------"
 echo "Initialization: $SYSTEM_PROMPT_MODE"
 echo "Model: $MODEL"
 echo "Temperature: $TEMPERATURE"
-echo "Chat Name: $CONTEXT_FILE_PATH"
+echo "Chat Name: $context_file_name"
 echo -e "---------------------------------------------------\n"
 
-# loop to ask questions until user exits
+
 while true; do
         read -p "${GREEN}User:${NC} " -e input
         if [ "$input" == "exit" ] || [ "$input" == "q" ]; then
                 echo "${GRAY}Shutting down...${NC}"
                 exit 0
+        elif [ "$input" == "--force-context-reset" ]; then
+                echo "${GRAY}Resetting chat context...${NC}"
+                chat_request=""
+        elif [ "$input" == "--history" ]; then
+                get_questions_count "$CONTEXT_FILE_PATH"
+                echo "${BLUE}Opening chat \"$CONTEXT_FILE_PATH\" containing $CURRENT_QUESTION_INDEX questions...${NC}"
+                less "$CONTEXT_FILE_PATH"
+        elif [ "$input" == "--help" ]; then
+                echo -e "${BLUE}Available commands:\n exit\n q\n --force-context-reset\n --history\n --help${NC}"
         else
                 # preprocess the user's question
                 preprocess "$input"
