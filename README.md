@@ -8,7 +8,8 @@ A simple lightweight shell program for using OpenAI's `gpt-3.5-turbo` model from
 Users can use the `GPTerminal.sh` file with several different parameter flags. Note that you can use multiple flags at the same time.
 - Run the script (default mode): `./GPTerminal.sh` (or `GPTerminal` if added to your path). Ask questions to OpenAI's gpt chatbot and receive context-aware responses (note that the current implementation uses a short-term memory situation, where older messages get deleted from context in order to meet the token length limitations of the OpenAI API).
 <!-- example 1 -->
-![Demo1](https://drive.google.com/file/d/1-nl-8OpDtFjSCx9hOhVwnNGz4MTvkz2i/view?usp=share_link)
+https://user-images.githubusercontent.com/90000011/234355154-81d6272d-7c31-4dcd-8e68-4dc05dd26628.mov
+
 
 - Initialize the chatbot with predefined or custom parameters:
     - Choose from two predefined initializations:
@@ -21,7 +22,8 @@ Users can use the `GPTerminal.sh` file with several different parameter flags. N
 - Define a name for a new chat history. If this parameter is not specified, the chat history will be saved under the current timestamp: `./GPTerminal.sh -n "chat name"` or `./GPTerminal.sh --new-name-chat "chat name"`
 
 <!-- example 2: init, temp, chat name -->
-![Demo2](https://drive.google.com/file/d/14Q1aBfQ36TBYgQpqnwgFKgipGLUPHOE6/view?usp=share_link)
+https://user-images.githubusercontent.com/90000011/234355208-aeefdce2-80c6-4c6e-8306-c36441919029.mov
+
 
 
 - List all previous chats: `./GPTerminal.sh -h` or `./GPterminal.sh --history`
@@ -33,7 +35,7 @@ Users can use the `GPTerminal.sh` file with several different parameter flags. N
 - Type `exit` or  `q` to quit the program
 
 <!-- example 3: history and quick question -->
-![Demo3](https://drive.google.com/file/d/1mZBF9B9WPGoHdTn9ePR_E78zKagHcZdv/view?usp=share_link)
+https://user-images.githubusercontent.com/90000011/234355266-694703fd-6a60-4691-a5aa-fc69e8546b63.mov
 
 <!-- How to Use It -->
 # Installation
