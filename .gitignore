@@ -1,3 +1,4 @@
 # ignore the history files
 .GPTerminal/*
 2
+.assets/*
